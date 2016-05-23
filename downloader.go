@@ -27,7 +27,20 @@ type downloadResult struct {
 }
 
 func (d *Downloader) Download(downloadable Downloadable) {
-	resp, err := d.Client.Get(downloadable.Url())
+	req, err := http.NewRequest("GET", downloadable.Url(), nil)
+
+	if err != nil {
+		log.Println("error building request", err)
+		d.ResultsC <- &downloadResult{
+			downloaded: nil,
+			success:    false,
+		}
+		return
+	}
+
+	req.Header.Set("User-Agent", "lockbox-bot v1")
+
+	resp, err := d.Client.Do(req)
 	log.Println("Getting...", downloadable.Url())
 
 	if err != nil {

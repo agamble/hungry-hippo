@@ -26,14 +26,14 @@ func (d *Dispatcher) Dispatch() {
 	for {
 		select {
 		case args := <-d.ServiceC:
-			ws, err := NewWebsiteFromAddress(args.Address, args.UserEmail)
+			ws, err := NewWebsiteFromAddress(args.address, args.id)
 			if err != nil {
+				log.Println("Error building website...")
 				continue
 			}
 
 			go downloader.Download(ws)
 		case downloadResult := <-downloader.ResultsC:
-			log.Println("Received results")
 			if !downloadResult.success {
 				continue
 			}
@@ -42,6 +42,7 @@ func (d *Dispatcher) Dispatch() {
 			downloaded.PrepareDependencies()
 
 			for _, xDep := range downloaded.Dependencies() {
+				log.Println("dep")
 				go downloader.Download(xDep)
 			}
 
@@ -53,13 +54,14 @@ func (d *Dispatcher) Dispatch() {
 
 			go uploader.Upload(storable)
 
+			storable.PrepareUploadXDeps()
+			for _, f := range storable.UploadXDeps() {
+				go uploader.Upload(f)
+			}
 		case uploadResult := <-uploader.ResultsC:
-			log.Println("Received uploaded file...")
 			documentable, ok := uploadResult.(Documentable)
 
 			if ok {
-				log.Println("Documenting...")
-				// don't need to do anything to non documentable objects
 				go documentable.SaveReference()
 			}
 

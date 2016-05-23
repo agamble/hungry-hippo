@@ -1,9 +1,10 @@
 package main
 
 import (
+	"log"
+
 	"golang.org/x/net/context"
 	"google.golang.org/cloud/storage"
-	"log"
 )
 
 type Uploader struct {
@@ -11,17 +12,40 @@ type Uploader struct {
 }
 
 const (
-	BUCKET_NAME      = "hippo"
+	BUCKET_NAME      = "lockbox-elephant"
 	BASE_STORAGE_URL = "https://storage.googleapis.com/"
 )
 
 type Storable interface {
 	UploadPath() string
-	Owner() string
 	Body() []byte
+	Ext() string
+	SetStatusCode(code int)
+	PrepareUploadXDeps()
+	UploadXDeps() []Storable
 }
 
 var StorageClient *storage.Client
+
+func (u *Uploader) setContentType(file Storable, obj *storage.ObjectHandle) {
+	var contentType string
+
+	switch file.Ext() {
+	case ".html":
+		contentType = "text/html"
+	case ".css":
+		contentType = "text/css"
+	case ".js":
+		contentType = "text/javascript"
+	default:
+		contentType = ""
+	}
+
+	attrs := storage.ObjectAttrs{}
+	attrs.ContentType = contentType
+	obj.Update(context.TODO(), attrs)
+	log.Printf("Setting %s, %s with content-type %s", file.UploadPath(), file.Ext(), contentType)
+}
 
 func (u *Uploader) Init() {
 	client, err := storage.NewClient(context.TODO())
@@ -35,8 +59,10 @@ func (u *Uploader) Init() {
 func (u *Uploader) Upload(file Storable) {
 	bucket := StorageClient.Bucket(BUCKET_NAME)
 	obj := bucket.Object(file.UploadPath())
+
 	u.writeFile(obj, file)
 	u.setAsPublic(obj)
+	u.setContentType(file, obj)
 
 	log.Println("Finished storing...", file.UploadPath())
 	u.ResultsC <- file

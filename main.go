@@ -1,20 +1,35 @@
 package main
 
 import (
-	"net/http"
+	"fmt"
+	"log"
+	"os"
+	"time"
 
-	"github.com/gorilla/rpc"
-	"github.com/gorilla/rpc/json"
+	"github.com/benmanns/goworker"
+	_ "github.com/lib/pq"
 )
 
 var Dsptchr *Dispatcher = NewDispatcher()
 
-func main() {
-	InitDsClient()
+var DbAuth string = "host=db user=%s password=%s dbname=%s sslmode=disable"
 
-	s := rpc.NewServer()
-	s.RegisterCodec(json.NewCodec(), "application/json")
-	s.RegisterService(new(FetchService), "")
-	http.Handle("/rpc", s)
-	http.ListenAndServe(":8080", s)
+func main() {
+	DbAuth = fmt.Sprintf(DbAuth,
+		os.Getenv("DATABASE_USERNAME"),
+		os.Getenv("DATABASE_PASSWORD"),
+		os.Getenv("DATABASE"))
+
+	log.Println(DbAuth)
+
+	time.Sleep(2 * time.Second)
+	log.Println("Starting...")
+
+	goworker.Register("Fetch", FetchService)
+
+	go Dsptchr.Dispatch()
+
+	if err := goworker.Work(); err != nil {
+		log.Println("Error:", err)
+	}
 }

@@ -2,31 +2,31 @@ package main
 
 import (
 	"bytes"
+	"database/sql"
 	"encoding/hex"
 	"log"
 	"math/rand"
 	"net/url"
 	"path/filepath"
 	"time"
-
-	"golang.org/x/net/context"
-	"google.golang.org/cloud/datastore"
 )
 
 type Website struct {
-	url     *url.URL
-	dirName string
-
-	ownerEmail string
+	url        *url.URL
+	dirName    string
+	id         int
+	statusCode int
+	storeUrl   string
+	screenshot *Screenshot
 
 	body []byte
 
 	xDeps []Downloadable
 }
 
-type WebsiteStore struct {
+type Revision struct {
 	Status    string
-	Owner     string
+	Owner     int
 	Url       string
 	StoreUrl  string
 	CreatedAt time.Time
@@ -58,6 +58,12 @@ func (w *Website) SetBody(b []byte) {
 	w.body = b
 }
 
+func (w *Website) PrepareUploadXDeps() {}
+
+func (w *Website) UploadXDeps() []Storable {
+	return nil
+}
+
 func (w *Website) Dependencies() []Downloadable {
 	return w.xDeps
 }
@@ -66,8 +72,8 @@ func (w *Website) Body() []byte {
 	return w.body
 }
 
-func (w *Website) Owner() string {
-	return w.ownerEmail
+func (w *Website) Id() int {
+	return w.id
 }
 
 func (w *Website) UploadFolder() string {
@@ -78,46 +84,54 @@ func (w *Website) UploadPath() string {
 	return filepath.Join(w.UploadFolder(), HtmlFilename)
 }
 
+func (w *Website) Ext() string {
+	return ".html"
+}
+
 func (w *Website) PrepareDependencies() {
 	p := Parser{}
 	xDeps := p.ParseLinks(bytes.NewReader(w.body), w)
 
-	w.xDeps = make([]Downloadable, len(xDeps))
+	log.Println(len(xDeps))
+
+	w.xDeps = make([]Downloadable, len(xDeps)+1)
 
 	for i, xd := range xDeps {
-		oldTag := xd.OldToken().String()
-		newTag := xd.NewToken().String()
+		oldUrl := xd.UrlString()
+		newUrl := xd.Filename()
+
+		w.body = bytes.Replace(w.body, []byte(oldUrl), []byte(newUrl), -1)
 
 		w.xDeps[i] = xDeps[i]
-
-		w.body = bytes.Replace(w.body, []byte(oldTag), []byte(newTag), -1)
-		xd.Website = w
 	}
+
+	w.xDeps[len(xDeps)] = w.screenshot
+}
+
+func (w *Website) SetStatusCode(code int) {
+	w.statusCode = code
 }
 
 func (w *Website) SaveReference() error {
-	var status string
-	if w.body == nil {
-		status = Downloaded
-	} else {
-		status = Initialised
-	}
-
-	wss := &WebsiteStore{
-		Status:    status,
-		Owner:     w.Owner(),
-		Url:       w.Url(),
-		StoreUrl:  w.StoreUrl(),
-		CreatedAt: time.Now(),
-		UpdatedAt: time.Now(),
-	}
-
-	key := datastore.NewIncompleteKey(context.Background(), "website", nil)
-	key, err := DatastoreClient.Put(context.Background(), key, wss)
-
-	log.Println(key)
+	db, err := sql.Open("postgres", DbAuth)
+	defer db.Close()
 
 	if err != nil {
+		log.Println(err)
+		return err
+	}
+
+	_, err = db.Exec("INSERT INTO revisions (page_id, status_code, store_url, thumbnail_url, screenshot_url, created_at, updated_at) VALUES ($1, $2, $3, $4, $5, $6, $7);",
+		w.id,
+		w.statusCode,
+		w.StoreUrl(),
+		w.screenshot.ThumbnailUrl(),
+		w.screenshot.ScreenshotUrl(),
+		time.Now().Format(time.RFC3339),
+		time.Now().Format(time.RFC3339))
+
+	if err != nil {
+		log.Println(err)
 		return err
 	}
 
@@ -131,19 +145,21 @@ func (w *Website) genRandomDirName() {
 	w.dirName = hex.EncodeToString(randBytes)
 }
 
-func NewWebsiteFromAddress(address string, email string) (*Website, error) {
+func NewWebsiteFromAddress(address string, id int) (*Website, error) {
 	w := new(Website)
 	u, err := url.Parse(address)
 	if err != nil {
 		return nil, err
 	}
 	w.url = u
-	w.ownerEmail = email
+	w.id = id
 
 	// make a forbidden page if not allowed
 	if err != nil {
 		return nil, err
 	}
+
+	w.screenshot = NewScreenshot(address, w)
 
 	w.genRandomDirName()
 	return w, nil

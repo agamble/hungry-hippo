@@ -5,6 +5,7 @@ import (
 	"math/rand"
 	"net/url"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"golang.org/x/net/html"
@@ -12,6 +13,7 @@ import (
 
 type XDep struct {
 	Website     *Website
+	urlString   string
 	token       *html.Token
 	body        []byte
 	newFileName string
@@ -23,7 +25,17 @@ func (xd *XDep) Dependencies() []Downloadable {
 	return nil
 }
 
+func (xd *XDep) SetStatusCode(code int) {
+}
+
 func (xd *XDep) PrepareDependencies() {
+}
+
+func (xd *XDep) PrepareUploadXDeps() {
+}
+
+func (xd *XDep) UploadXDeps() []Storable {
+	return nil
 }
 
 func (xd *XDep) Filename() string {
@@ -33,13 +45,24 @@ func (xd *XDep) Filename() string {
 	return xd.newFileName
 }
 
-func (xd *XDep) Url() string {
-	src, _ := xd.getSrc()
-	return src
+func (xd *XDep) UrlString() string {
+	return xd.urlString
 }
 
-func (xd *XDep) Owner() string {
-	return xd.Website.ownerEmail
+func (xd *XDep) Url() string {
+	urlString := xd.urlString
+
+	if strings.HasPrefix(xd.urlString, "//") {
+		urlString = "http:" + urlString
+	}
+
+	url, _ := url.Parse(urlString)
+
+	return url.String()
+}
+
+func (xd *XDep) Id() int {
+	return xd.Website.id
 }
 
 func (xd *XDep) SetBody(b []byte) {
@@ -87,7 +110,15 @@ func (xd *XDep) genFileName() string {
 		return gen(16)
 	}
 
+	if strings.Contains(ext, "?") {
+		ext = ext[:strings.Index(ext, "?")]
+	}
+
 	return gen(16) + ext
+}
+
+func (xd *XDep) Ext() string {
+	return filepath.Ext(xd.newFileName)
 }
 
 func (xd *XDep) NewToken() *html.Token {
@@ -101,44 +132,29 @@ func (xd *XDep) NewToken() *html.Token {
 	return &t
 }
 
+func (xd *XDep) ReplaceableStrings() []string {
+	tags := make([]string, 0)
+	oldType := xd.token.Type
+
+	xd.token.Type = html.SelfClosingTagToken
+	tags = append(tags, xd.token.String())
+
+	xd.token.Type = html.StartTagToken
+	tags = append(tags, xd.token.String())
+
+	xd.token.Type = oldType
+	return tags
+}
+
 func (xd *XDep) OldToken() *html.Token {
 	return xd.token
 }
 
-func (xd *XDep) getSrc() (string, bool) {
-	t := xd.token
-	for _, a := range t.Attr {
-		if a.Key == "src" {
-			return a.Val, true
-		}
-	}
-
-	return "", false
-}
-
-func (xd *XDep) tokenOk() bool {
-	u, ok := xd.getSrc()
-
-	if !ok {
-		return false
-	}
-
-	_, err := url.Parse(u)
-	if err != nil {
-		return false
-	}
-
-	return true
-}
-
-func NewXDep(token *html.Token, website *Website) (*XDep, error) {
+func NewXDep(token *html.Token, url string, website *Website) *XDep {
 	xdep := new(XDep)
 	xdep.Website = website
 	xdep.token = token
+	xdep.urlString = url
 
-	if !xdep.tokenOk() {
-		return nil, ErrInvalidToken
-	}
-
-	return xdep, nil
+	return xdep
 }

@@ -1,16 +1,14 @@
 package main
 
 import (
-	"net/http"
-	"net/url"
+	"encoding/json"
+	"errors"
+	"log"
 )
 
-type FetchService struct {
-}
-
 type fetchArgs struct {
-	Address   string
-	UserEmail string
+	address string
+	id      int
 }
 
 type fetchReply struct {
@@ -18,28 +16,34 @@ type fetchReply struct {
 	err    string
 }
 
-func (f *fetchReply) Fail(message string) {
-	f.status = false
-	f.err = message
-}
+func FetchService(queue string, args ...interface{}) error {
+	log.Println(args)
 
-func (f *fetchReply) Success() {
-	f.status = true
-}
+	website, ok := args[0].(string)
+	if !ok {
+		log.Println("Bad argument website")
+		return errors.New("Bad argument website")
+	}
 
-func (f *FetchService) Fetch(r *http.Request, args *fetchArgs, reply *fetchReply) {
-	_, err := url.Parse(args.Address)
+	idNum, ok := args[1].(json.Number)
+	if !ok {
+		log.Println("Bad argument id")
+		return errors.New("Bad argument ID")
+	}
+
+	id, err := idNum.Int64()
 
 	if err != nil {
-		reply.Fail("URL is invalid")
-		return
+		log.Println("bad conversion to int64...")
+		return errors.New("bad conversion to int64")
 	}
 
-	if args.Address == "" || args.UserEmail == "" {
-		reply.Fail("You must include both email and web address as part of request...")
-		return
-	}
+	log.Println("Starting...")
 
-	go Dsptchr.DownloadAndStore(args)
-	reply.Success()
+	go Dsptchr.DownloadAndStore(&fetchArgs{
+		address: website,
+		id:      int(id),
+	})
+
+	return nil
 }
